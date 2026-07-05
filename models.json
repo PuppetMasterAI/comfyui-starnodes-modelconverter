@@ -17,6 +17,17 @@
       "fp8_layers": [],
       "preserve_extended_metadata": false
     },
+    "Anima": {
+      "_note": "Anima (Cosmos-based) requires the 'llm_adapter' keys, biases, and normalizations to remain unquantized to prevent color banding and generation artifacts.",
+      "blacklist": [
+        "bias", "norm", "scale",
+        "llm_adapter",
+        "final_layer", "proj_out",
+        "x_embedder", "t_embedder", "context_embedder"
+      ],
+      "fp8_layers": [],
+      "preserve_extended_metadata": false
+    },
     "Z-Image-Turbo": {
       "blacklist": ["cap_embedder", "x_embedder", "noise_refiner", "context_refiner", "t_embedder", "final_layer"],
       "fp8_layers": [],
