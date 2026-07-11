@@ -76,6 +76,24 @@
       "fp8_layers": [],
       "preserve_extended_metadata": false
     },
+    "SeedVR (All Versions)": {
+      "_note": "Groups SeedVR and SeedVR2. Uses an MMDiT backbone with Shifted Window Attention. Positional/patch embeddings and modulations must be protected to prevent grid artifacts and structural destruction.",
+      "blacklist": ["bias", "norm", "scale", "final_layer", "proj_out", "pos_emb", "neg_emb", "patch_embed", "pos_embed", "x_embedder", "t_embedder", "context_embedder", "y_embedder", "time_in", "vector_in", "guidance_in", "txt_in", "img_in", "single_stream_modulation", "double_stream_modulation", "vae", "attn.proj_qkv_vid"],
+      "fp8_layers": [],
+      "preserve_extended_metadata": false
+    },
+    "Text-Encoder": {
+      "_note": "Generic profile for Text Encoders (e.g., CLIP, T5, Llama). Keeps embeddings and layer norms in bf16 to maintain text comprehension accuracy.",
+      "blacklist": ["bias", "norm", "scale", "token_embedding", "position_embedding", "shared.weight", "lm_head", "final_layer_norm", "embed_tokens", "text_model.embeddings", "pos_embed", "patch_embed"],
+      "fp8_layers": [],
+      "preserve_extended_metadata": false
+    },
+    "Unknown": {
+      "_note": "Universal fallback profile. Preserves almost all typical embedding, norm, bias, and projection layers across DiTs, UNets, and Transformers to ensure stability.",
+      "blacklist": ["bias", "norm", "scale", "final_layer", "proj_out", "head", "text_embedding", "time_embedding", "time_projection", "embedder", "adaln", "t_embedder", "x_embedder", "y_embedder", "context_embedder", "pos_emb", "patch_embed", "pos_embed", "class_embedding", "single_stream_modulation", "double_stream_modulation", "img_in", "txt_in", "time_in", "vector_in", "guidance_in"],
+      "fp8_layers": [],
+      "preserve_extended_metadata": false
+    },
     "Wan (All Versions)": {
       "_note": "Groups Wan 2.1, 2.2, 2.3 and all t2v/i2v variants. They share the same DiT architecture, so the embedding layers to preserve are identical.",
       "blacklist": ["text_embedding", "time_embedding", "time_projection", "head"],
