@@ -1,6 +1,7 @@
 {
   "default": {
     "blacklist": ["cap_embedder", "x_embedder", "noise_refiner", "context_refiner", "t_embedder", "final_layer"],
+    "whitelist": [],
     "fp8_layers": [],
     "preserve_extended_metadata": false
   },
@@ -47,8 +48,9 @@
       "preserve_extended_metadata": false
     },
     "Krea-2": {
-      "_note": "SingleStreamDiT keys that must stay unquantized to prevent ComfyUI from mis-detecting shapes.",
-      "blacklist": ["bias", "norm", "scale", "first", "last.", "tmlp", "tproj", "txtmlp", "txtfusion.projector"],
+      "_note": "Matches the official Comfy-Org/kijai int8_convrot layout: only blocks.*.attn.* and blocks.*.mlp.* 2D weights are quantized. Everything ending in '.scale' keeps its original dtype, all of txtfusion.* keeps its original dtype (mixed bf16/f32), and everything else not whitelisted is cast down to bf16.",
+      "blacklist": ["*.scale", "txtfusion.*"],
+      "whitelist": ["blocks.*.attn.*", "blocks.*.mlp.*"],
       "fp8_layers": [],
       "preserve_extended_metadata": false
     },

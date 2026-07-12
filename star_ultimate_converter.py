@@ -3,6 +3,7 @@ import re
 import json
 import time
 import glob
+import fnmatch
 import torch
 import folder_paths
 import safetensors
@@ -43,6 +44,24 @@ DTYPE_NAMES = {
 }
 
 
+def key_matches(key, patterns):
+    """Check a state-dict key against a list of patterns.
+
+    Patterns containing '*' are matched as fnmatch globs against the full key
+    (e.g. "*.scale" matches any key ending in '.scale', "blocks.*.attn.*"
+    matches any key with an 'attn' segment inside a numbered block).
+    Patterns without '*' fall back to legacy plain-substring containment,
+    so existing model profiles keep working unchanged.
+    """
+    for pattern in patterns:
+        if "*" in pattern:
+            if fnmatch.fnmatch(key, pattern):
+                return True
+        elif pattern in key:
+            return True
+    return False
+
+
 def detect_input_format(sd, metadata):
     counts = Counter(DTYPE_NAMES.get(v.dtype, str(v.dtype)) for v in sd.values())
     parts = [f"{name} ({n} tensors)" for name, n in counts.most_common()]
@@ -68,6 +87,7 @@ def get_profile(configs, model_type):
     profile = configs["models"].get(model_type, default)
     return (
         profile.get("blacklist", default["blacklist"]),
+        profile.get("whitelist", default.get("whitelist", [])),
         profile.get("fp8_layers", default["fp8_layers"]),
         profile.get("preserve_extended_metadata", default["preserve_extended_metadata"]),
     )
@@ -281,10 +301,10 @@ class StarUltimateModelConverter:
 
     def convert(self, mode, diffusion_model, checkpoint, text_encoder, model_type, target_format, device, custom_path=""):
         configs = load_model_configs()
-        blacklist, fp8_layers, preserve_extended = get_profile(configs, model_type)
+        blacklist, whitelist, fp8_layers, preserve_extended = get_profile(configs, model_type)
         
         # Lade sicherheitshalber auch gleich das Text-Encoder Profil für den AIO Modus mit
-        te_blacklist, te_fp8_layers, _ = get_profile(configs, "Text-Encoder")
+        te_blacklist, te_whitelist, te_fp8_layers, _ = get_profile(configs, "Text-Encoder")
         
         start_time = time.time()
 
@@ -295,6 +315,8 @@ class StarUltimateModelConverter:
                 raise ValueError(f"Mode is '{mode}' but no checkpoint is selected. Please choose a model from the dropdown.")
             
             ckpt_path = folder_paths.get_full_path("checkpoints", checkpoint)
+            if not ckpt_path:
+                raise ValueError(f"Checkpoint not found: {checkpoint}")
             base_name = os.path.splitext(os.path.basename(ckpt_path))[0]
             
             # Originale Metadaten aus dem Checkpoint retten
@@ -366,10 +388,12 @@ class StarUltimateModelConverter:
                     if k.startswith(AIO_MODEL_PREFIX):
                         # Es ist das Diffusion Model
                         active_blacklist = blacklist
+                        active_whitelist = whitelist
                         active_fp8 = fp8_layers
                     elif k.startswith("cond_stage_model.") or k.startswith("conditioner.") or k.startswith("text_encoders."):
                         # Es ist ein Text-Encoder (CLIP/T5)
                         active_blacklist = te_blacklist
+                        active_whitelist = te_whitelist
                         active_fp8 = te_fp8_layers
                     else:
                         # Es ist das VAE (first_stage_model) oder andere strukturelle Keys.
@@ -384,19 +408,24 @@ class StarUltimateModelConverter:
                 else:
                     # Normaler Modus (Stand-alone Modell)
                     active_blacklist = blacklist
+                    active_whitelist = whitelist
                     active_fp8 = fp8_layers
                 # ----------------------------------------
 
-                if any(name in k for name in active_blacklist):
-                    if v.dtype.is_floating_point:
-                        new_sd[k] = v.to(dtype=torch.bfloat16)
-                        counts["kept bf16"] += 1
-                    else:
-                        new_sd[k] = v
-                        counts["kept"] += 1
+                if key_matches(k, active_blacklist):
+                    # Blacklisted tensors keep their original dtype untouched
+                    # (e.g. norm/scale tensors that must stay fp32).
+                    new_sd[k] = v
+                    counts["kept"] += 1
                     continue
 
-                if v.ndim == 2 and ".weight" in k:
+                is_quant_candidate = v.ndim == 2 and ".weight" in k
+                if active_whitelist:
+                    # A whitelist restricts quantization to matching keys only;
+                    # everything else falls through to the bf16-downcast branch.
+                    is_quant_candidate = is_quant_candidate and key_matches(k, active_whitelist)
+
+                if is_quant_candidate:
                     base_k_file = k.replace(".weight", "")
                     # The metadata keys must exactly match the base keys
                     base_k_meta = base_k_file
@@ -405,7 +434,7 @@ class StarUltimateModelConverter:
                     v_tensor = v.to(device=device, dtype=torch.bfloat16)
 
                     # Hier nutzen wir active_fp8 anstelle von fp8_layers
-                    if target_format == "fp8" or (active_fp8 and any(name in k for name in active_fp8)):
+                    if target_format == "fp8" or (active_fp8 and key_matches(k, active_fp8)):
                         print(f"🌸 FP8: {k}")
                         weight_scale = (v_tensor.abs().max() / 448.0).clamp(min=1e-12).float()
                         weight_quantized = ck.quantize_per_tensor_fp8(v_tensor, weight_scale)
